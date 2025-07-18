@@ -26,7 +26,7 @@ st.markdown("""
         border: 1px solid rgba(255, 255, 255, 0.2); background-color: #1E1E1E;
         border-radius: 10px; padding: 20px; box-shadow: 0 4px 8px 0 rgba(0,0,0,0.2);
     }
-    /* Custom metric box styling (Restored) */
+    /* Custom metric box styling */
     .metric-container {
         background-color: #262730;
         border-radius: 10px;
@@ -41,9 +41,8 @@ st.markdown("""
 
 
 # --- DATA DEFAULTS & STATIC ASSETS ---
+# REMOVED: "Users" and "Expenses" sheets are no longer needed.
 DEFAULT_SHEET_DATA = {
-    "Users": [["Name"], ["Traveler 1"], ["Traveler 2"]],
-    "Expenses": [["Date", "Description", "Category", "Paid_By", "Original_Amount", "Original_Currency", "Amount_LKR", "Split_Between"]],
     "Tips": [
         ["Category", "Tip"], ["Money", "Always carry small change."], ["Health", "Drink only bottled water."],
         ["Culture", "Dress modestly for temples (cover shoulders/knees)."], ["General", "Buy a local SIM card at the airport."]
@@ -91,14 +90,6 @@ def get_or_create_sheet_data(_client, sheet_name):
         st.error(f"Error accessing sheet '{sheet_name}': {e}"); return pd.DataFrame()
     return pd.DataFrame(worksheet.get_all_records())
 
-def append_to_sheet(client, sheet_name, data_row):
-    try:
-        worksheet = client.open_by_url(st.secrets["google_sheets"]["sheet_url"]).worksheet(sheet_name)
-        worksheet.append_row(data_row, value_input_option='USER_ENTERED')
-        get_or_create_sheet_data.clear(); return True
-    except Exception as e:
-        st.error(f"Failed to append data: {e}"); return False
-
 @st.cache_data(ttl=3600)
 def get_exchange_rates(api_key):
     fallback = {"result": "error", "rates": {"LKR": 300, "INR": 83.5, "USD": 1}}
@@ -123,7 +114,7 @@ def load_lottieurl(url: str):
     except Exception: return None
 
 # --- UI HELPER FUNCTIONS ---
-def styled_metric(label, value, help_text=""):
+def styled_metric(label, value):
     st.markdown(f"""
     <div class="metric-container">
         <p class="metric-label">{label}</p>
@@ -146,13 +137,9 @@ client = connect_to_gsheets()
 if not client: st.stop()
 
 itinerary_df = get_or_create_sheet_data(client, "Itinerary")
-users_df = get_or_create_sheet_data(client, "Users")
-expenses_df = get_or_create_sheet_data(client, "Expenses")
 phrases_df = get_or_create_sheet_data(client, "Phrases")
 tips_df = get_or_create_sheet_data(client, "Tips")
 checklist_df = get_or_create_sheet_data(client, "Checklist")
-
-travelers = users_df['Name'].tolist() if 'Name' in users_df.columns else []
 rates_data = get_exchange_rates(st.secrets.get("api_keys", {}).get("exchangerate_api_key"))
 rates = rates_data['rates']
 
@@ -161,8 +148,9 @@ with st.sidebar:
     sidebar_lottie = load_lottieurl("https://assets1.lottiefiles.com/packages/lf20_m9zragkd.json")
     if sidebar_lottie: st.lottie(sidebar_lottie, height=150, key="sidebar_lottie")
     st.title("Sri Lanka Trip")
-    selected = option_menu(None, ["Dashboard", "Daily Itinerary", "Expense Tracker", "Travel Handbook"],
-        icons=["bi-house-door-fill", "bi-calendar-week-fill", "bi-cash-coin", "bi-book-half"],
+    # REMOVED: Expense Tracker from menu
+    selected = option_menu(None, ["Dashboard", "Daily Itinerary", "Travel Handbook"],
+        icons=["bi-house-door-fill", "bi-calendar-week-fill", "bi-book-half"],
         styles={"nav-link-selected": {"background-color": "#02ab21"}})
 
 # --- DASHBOARD PAGE ---
@@ -182,13 +170,10 @@ if selected == "Dashboard":
         else: st.balloons(); st.markdown("## The adventure has begun!")
     
     st.divider()
-    # RESTORED: Styled metric boxes for summary
-    m1, m2, m3 = st.columns(3)
+    # MODIFIED: Removed "Total Spent" and hardcoded "Travelers"
+    m1, m2 = st.columns(2)
     with m1: styled_metric("Trip Duration", f"{len(itinerary_df)} Days")
-    with m2: styled_metric("Travelers", f"{len(travelers)} People")
-    with m3:
-        total_spent = pd.to_numeric(expenses_df['Amount_LKR'], errors='coerce').sum() if 'Amount_LKR' in expenses_df else 0
-        styled_metric("Total Spent", f"Rs {total_spent:,.0f}")
+    with m2: styled_metric("Travelers", "8 People")
     st.divider()
 
     main_col, widget_col = st.columns([2, 1])
@@ -202,15 +187,11 @@ if selected == "Dashboard":
             st.subheader("☀️ Weather Forecast")
             if not itinerary_df.empty and 'Night Stay' in itinerary_df.columns:
                 all_cities = itinerary_df['Night Stay'].unique().tolist()
-                # Determine default city for today
                 itinerary_df['Date_dt'] = pd.to_datetime(itinerary_df['Date']).dt.date
                 today_loc_row = itinerary_df[itinerary_df['Date_dt'] <= date.today()].tail(1)
                 default_city = today_loc_row.iloc[0]['Night Stay'] if not today_loc_row.empty else all_cities[0]
                 default_index = all_cities.index(default_city) if default_city in all_cities else 0
-                
-                # Dropdown with default and option to change
                 selected_city = st.selectbox("Check weather for:", all_cities, index=default_index)
-                
                 weather_data = get_weather(selected_city, st.secrets.get("api_keys", {}).get("openweathermap_api_key"))
                 if weather_data and weather_data.get('cod') == 200:
                     st.metric(label=f"in {selected_city}", value=f"{weather_data['main']['temp']} °C", delta=f"Feels like {weather_data['main']['feels_like']} °C")
@@ -227,7 +208,6 @@ if selected == "Dashboard":
             if rates.get(from_curr) and rates.get(to_curr):
                 conv_rate = rates[to_curr] / rates[from_curr]
                 result = amount * conv_rate
-                # REFINED: Currency output in a styled box
                 st.markdown(f"""
                 <div style="background-color:#262730; border-radius:10px; padding: 10px; text-align:center;">
                     <p style="color:#fafafa; font-size:1.5rem; font-weight:bold; margin:0;">{result:,.2f} {to_curr}</p>
@@ -246,96 +226,37 @@ if selected == "Daily Itinerary":
                     st.markdown(f"**🚗 Travel:** {row['Travel Details']}")
                     if 'Attractions' in row and pd.notna(row['Attractions']): st.markdown(f"**🌟 Highlights:** {row['Attractions']}")
                 with cols[1]:
-                    # UPGRADED: A-to-B Google Maps Directions Link
                     destination = row['Night Stay']
-                    if index == 0: # First day
-                        try:
-                            origin = row['Location(s)'].split('→')[0].strip()
-                        except:
-                            origin = "Bandaranaike International Airport" # Fallback
-                    else: # Subsequent days
-                        origin = itinerary_df.iloc[index-1]['Night Stay']
-                    
+                    if index == 0:
+                        try: origin = row['Location(s)'].split('→')[0].strip()
+                        except: origin = "Bandaranaike International Airport"
+                    else: origin = itinerary_df.iloc[index-1]['Night Stay']
                     gmaps_url = f"https://www.google.com/maps/dir/{urllib.parse.quote_plus(origin+', Sri Lanka')}/{urllib.parse.quote_plus(destination+', Sri Lanka')}"
                     st.link_button(f"Get Directions 🗺️", gmaps_url, use_container_width=True)
 
-# --- EXPENSE TRACKER PAGE ---
-if selected == "Expense Tracker":
-    st.header("💰 Expense Tracker")
-    if not travelers:
-        st.warning("Please add travelers in 'Manage Travelers' to begin.")
-    else:
-        tab1, tab2, tab3 = st.tabs(["📊 Balances", "➕ Add Expense", "👥 Manage Travelers"])
-        with tab1:
-            if not expenses_df.empty and 'Amount_LKR' in expenses_df.columns:
-                balances = {t: 0 for t in travelers}
-                expenses_df['Amount_LKR'] = pd.to_numeric(expenses_df['Amount_LKR'], errors='coerce').fillna(0)
-                for _, exp in expenses_df.iterrows():
-                    split_list = [s.strip() for s in str(exp['Split_Between']).split(',') if s.strip() in travelers]
-                    if not split_list: continue
-                    share = exp['Amount_LKR'] / len(split_list)
-                    if exp['Paid_By'] in balances: balances[exp['Paid_By']] += exp['Amount_LKR']
-                    for p in split_list:
-                        if p in balances: balances[p] -= share
-                st.subheader("Net Balances")
-                cols = st.columns(len(travelers))
-                for i, t in enumerate(travelers):
-                    with cols[i]:
-                        st.metric(label=t, value=f"Rs {balances.get(t, 0):,.2f}", delta_color="inverse" if balances.get(t, 0) > 0 else "off")
-                st.subheader("How to Settle Up")
-                creditors = {p: b for p, b in balances.items() if b > 0.01}
-                debtors = {p: b for p, b in balances.items() if b < -0.01}
-                settlements = []
-                while creditors and debtors:
-                    c_name, c_val = max(creditors.items(), key=lambda x: x[1])
-                    d_name, d_val = min(debtors.items(), key=lambda x: x[1])
-                    amount = min(c_val, -d_val)
-                    settlements.append(f"**{d_name}** pays **{c_name}** → **Rs {amount:,.2f}**")
-                    creditors[c_name] -= amount; debtors[d_name] += amount
-                    if abs(creditors[c_name]) < 0.01: del creditors[c_name]
-                    if abs(debtors[d_name]) < 0.01: del debtors[d_name]
-                for s in settlements: st.info(s)
-                if not settlements: st.success("🎉 Everyone is settled up!")
-            with st.expander("View All Transactions"):
-                st.dataframe(expenses_df, use_container_width=True)
-        with tab2:
-            st.subheader("Log a New Expense")
-            with st.form("expense_form", clear_on_submit=True):
-                c1,c2 = st.columns(2); description = c1.text_input("Description"); category = c2.selectbox("Category", ["Food & Drinks", "Transport", "Accommodation", "Activities", "Shopping", "Other"])
-                c1,c2,c3 = st.columns(3); amount = c1.number_input("Amount", min_value=0.01, format="%.2f"); currency = c2.selectbox("Currency", FIXED_CURRENCIES, index=0); paid_by = c3.selectbox("Paid by", travelers)
-                split_between = st.multiselect("Split Between", travelers, default=travelers)
-                if st.form_submit_button("Add Expense", use_container_width=True):
-                    if not description or not split_between: st.warning("Please fill all fields.")
-                    else:
-                        lkr_amount = (amount / rates[currency]) * rates['LKR']
-                        new_row = [date.today().strftime("%Y-%m-%d"), description, category, paid_by, amount, currency, lkr_amount, ",".join(split_between)]
-                        if append_to_sheet(client, "Expenses", new_row): st.success("Expense added!"); st.rerun()
-        with tab3:
-            st.subheader("Manage Travelers")
-            with st.form("add_user_form"):
-                new_user = st.text_input("New Traveler's Name")
-                if st.form_submit_button("Add Traveler"):
-                    if new_user and new_user not in travelers: append_to_sheet(client, "Users", [new_user]); st.rerun()
-                    else: st.warning("Name cannot be empty or already exist.")
-
-# --- HANDBOOK PAGE ---
+# --- TRAVEL HANDBOOK PAGE ---
 if selected == "Travel Handbook":
     st.header("📖 Travel Handbook")
-    tab1, tab2, tab3, tab4 = st.tabs(["💡 Travel Tips", "🗣️ Essential Phrases", "✅ Packing Checklist", "🚨 Emergency Info"])
+    # REORDERED: Phrases tab is now first.
+    tab1, tab2, tab3, tab4 = st.tabs(["🗣️ Essential Phrases", "💡 Travel Tips", "✅ Packing Checklist", "🚨 Emergency Info"])
+    
     with tab1:
+        st.subheader("Essential Sinhala Phrases"); st.dataframe(phrases_df, hide_index=True, use_container_width=True)
+    
+    with tab2:
         st.subheader("Top Travel Tips")
         if not tips_df.empty and 'Category' in tips_df.columns:
             for category in tips_df['Category'].unique():
                 with st.expander(f"**{category}**"):
                     for _, row in tips_df[tips_df['Category'] == category].iterrows(): st.markdown(f"- {row['Tip']}")
-    with tab2:
-        st.subheader("Essential Sinhala Phrases"); st.dataframe(phrases_df, hide_index=True, use_container_width=True)
+    
     with tab3:
         st.subheader("Our Packing Checklist")
         if not checklist_df.empty and 'Category' in checklist_df.columns:
             for category in checklist_df['Category'].unique():
                 st.write(f"**{category}**")
                 for _, row in checklist_df[checklist_df['Category'] == category].iterrows(): st.checkbox(row['Item'], key=f"pack_{row['Item']}")
+    
     with tab4:
         st.subheader("Emergency Contacts & Info")
         st.error("""- **National Emergency / Police:** `119`\n- **Ambulance / Fire & Rescue:** `110`\n- **Tourist Police (Colombo):** `011-2421052`\n\n**Important:** Keep digital/physical copies of your passport, visa, and flight details. Share your itinerary with family.""")
