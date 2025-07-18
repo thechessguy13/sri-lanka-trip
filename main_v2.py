@@ -3,14 +3,15 @@ import pandas as pd
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import requests
-from streamlit_lottie import st_lottie
+# The Lottie library is no longer needed for the dashboard layout
+# from streamlit_lottie import st_lottie 
 from datetime import datetime, date
 import urllib.parse
 import pydeck as pdk
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
-    page_title="Sri Lanka Trip Planner",
+    page_title="Sri Lanka Trip",
     page_icon="🇱🇰",
     layout="wide",
 )
@@ -104,12 +105,6 @@ def get_weather(city, api_key):
         return requests.get(f"http://api.openweathermap.org/data/2.5/weather?q={city},LK&appid={api_key}&units=metric").json()
     except Exception: return None
 
-def load_lottieurl(url: str):
-    try:
-        r = requests.get(url)
-        return r.json() if r.status_code == 200 else None
-    except Exception: return None
-
 # --- UI HELPER FUNCTIONS ---
 def styled_metric(label, value):
     st.markdown(f"""
@@ -152,39 +147,37 @@ rates_data = get_exchange_rates(st.secrets.get("api_keys", {}).get("exchangerate
 rates = rates_data['rates']
 
 # --- MAIN APP LAYOUT (SINGLE-PAGE WITH TABS) ---
-
-st.title("🇱🇰 Sri Lanka Trip Planner")
-st.markdown("Your all-in-one mobile companion for our adventure.")
+st.markdown("<h1 style='text-align: center;'>Sri Lanka 2025</h1>", unsafe_allow_html=True)
+st.markdown("<h3 style='text-align: center;'>One Last Time!</h3>", unsafe_allow_html=True)
 
 dash_tab, itinerary_tab, handbook_tab = st.tabs(["📍 Dashboard", "🗓️ Daily Itinerary", "📖 Travel Handbook"])
 
 # --- DASHBOARD TAB ---
 with dash_tab:
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        main_lottie = load_lottieurl("https://assets9.lottiefiles.com/packages/lf20_g8d3ch3c.json")
-        if main_lottie: st.lottie(main_lottie, height=200, key="main_lottie")
-    with col2:
-        st.subheader("Trip Countdown")
-        trip_start_date = datetime(2025, 9, 20)
-        delta = trip_start_date - datetime.now()
-        if delta.days >= 0: st.markdown(f"## **{delta.days} days, {delta.seconds // 3600} hours** to go!")
-        else: st.balloons(); st.markdown("## The adventure has begun!")
+    # --- BLOCK 1: CENTERED COUNTDOWN ---
+    st.markdown("<h3 style='text-align: center;'>Trip Countdown</h3>", unsafe_allow_html=True)
+    trip_start_date = datetime(2025, 9, 20)
+    delta = trip_start_date - datetime.now()
+    if delta.days >= 0:
+        st.markdown(f"<h2 style='text-align: center; color: #29B5E8;'><strong>{delta.days} days, {delta.seconds // 3600} hours</strong> to go!</h2>", unsafe_allow_html=True)
+    else:
+        st.balloons()
+        st.markdown("<h2 style='text-align: center;'>The adventure has begun!</h2>", unsafe_allow_html=True)
     
     st.divider()
+
+    # --- BLOCK 2: BALANCED SIDE-BY-SIDE METRICS ---
+    # This is the corrected layout. By using two equal columns that span the full page width,
+    # the metrics will appear perfectly balanced and centered.
     m1, m2 = st.columns(2)
-    with m1: styled_metric("Trip Duration", f"{len(itinerary_df)} Days")
-    with m2: styled_metric("Travelers", "8 People")
+    with m1: 
+        styled_metric("Trip Duration", f"{len(itinerary_df)} Days")
+    with m2: 
+        styled_metric("Travelers", "8 People")
+            
     st.divider()
 
-    # THE MAP IS NOW ALWAYS VISIBLE ON THE DASHBOARD
-    st.subheader("Interactive Trip Route")
-    if not itinerary_df.empty and 'Night Stay' in itinerary_df.columns:
-        trip_map = create_itinerary_map(itinerary_df.copy())
-        if trip_map: st.pydeck_chart(trip_map, use_container_width=True)
-    
-    st.divider()
-
+    # --- BLOCK 3: WEATHER AND CONVERTER ---
     w1, w2 = st.columns(2)
     with w1:
         with st.container(): # Weather Widget
@@ -216,12 +209,19 @@ with dash_tab:
                 </div>
                 """, unsafe_allow_html=True)
 
+    st.divider()
+    st.subheader("Interactive Trip Route")
+    if not itinerary_df.empty and 'Night Stay' in itinerary_df.columns:
+        trip_map = create_itinerary_map(itinerary_df.copy())
+        if trip_map: st.pydeck_chart(trip_map, use_container_width=True)
+    
+    st.divider()
+    
 # --- ITINERARY TAB ---
 with itinerary_tab:
     st.header("🗺️ Daily Itinerary")
     st.write("Tap on a day to see details and get directions.")
     if not itinerary_df.empty:
-        # Convert date column once before the loop
         itinerary_df['Formatted_Date'] = pd.to_datetime(itinerary_df['Date']).dt.strftime('%A, %d %b %Y')
         for index, row in itinerary_df.iterrows():
             with st.expander(f"**{row['Formatted_Date']}**: {row['Location(s)']} → **{row['Night Stay']}**"):
