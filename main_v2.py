@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-from streamlit_option_menu import option_menu
 import requests
 from streamlit_lottie import st_lottie
 from datetime import datetime, date
@@ -20,7 +19,7 @@ st.set_page_config(
 st.markdown("""
 <style>
     /* Main containers */
-    .st-emotion-cache-18ni7ap, .st-emotion-cache-1d391kg { padding: 2rem 2rem 1rem; }
+    .st-emotion-cache-18ni7ap, .st-emotion-cache-1d391kg { padding: 1rem 1rem 1rem; }
     /* Card-like containers for widgets */
     div[data-testid="stVerticalBlock"] > [style*="flex-direction: column;"] > [data-testid="stVerticalBlock"] {
         border: 1px solid rgba(255, 255, 255, 0.2); background-color: #1E1E1E;
@@ -44,15 +43,14 @@ st.markdown("""
 DEFAULT_SHEET_DATA = {
     "Tips": [
         ["Category", "Tip"], ["Money", "Always carry small change."], ["Health", "Drink only bottled water."],
-        ["Culture", "Dress modestly for temples (cover shoulders/knees)."], ["General", "Buy a local SIM card at the airport."]
+        ["Culture", "Dress modestly for temples."], ["General", "Buy a local SIM card."]
     ],
     "Phrases": [
         ["English", "Sinhala", "Pronunciation"], ["Hello", "Ayubowan", "Aayu-bo-wan"],
         ["Thank you", "Istuti", "Is-thu-thi"], ["How much?", "Kiyadha?", "Kee-yah-dha?"]
     ],
     "Checklist": [
-        ["Category", "Item"], ["Documents", "Passport & Visa"], ["Electronics", "Universal Power Adapter"],
-        ["Health", "Sunscreen"]
+        ["Category", "Item"], ["Documents", "Passport & Visa"], ["Electronics", "Universal Power Adapter"]
     ]
 }
 LOCATION_COORDINATES = {
@@ -125,12 +123,21 @@ def create_itinerary_map(df):
     df['coords'] = df['Night Stay'].map(LOCATION_COORDINATES)
     df.dropna(subset=['coords'], inplace=True)
     if df.empty: return None
+    
     path_data = [{'path': df['coords'].tolist(), 'name': 'Trip Route', 'color': [255, 69, 0]}]
     view_state = pdk.ViewState(latitude=df['coords'].iloc[0][1], longitude=df['coords'].iloc[0][0], zoom=6.5, pitch=50)
-    layer_points = pdk.Layer('ScatterplotLayer', data=df, get_position='coords', get_color='[200, 30, 0, 160]', get_radius=8000, pickable=True)
+    
+    layer_points = pdk.Layer(
+        'ScatterplotLayer',
+        data=df[['Day', 'Night Stay', 'coords']], 
+        get_position='coords',
+        get_color='[200, 30, 0, 160]',
+        get_radius=8000,
+        pickable=True
+    )
+    
     layer_path = pdk.Layer("PathLayer", data=path_data, pickable=True, width_scale=20, width_min_pixels=2, get_path="path", get_color="color", get_width=5)
     
-    # Using CARTO basemap and no API key.
     return pdk.Deck(map_style=pdk.map_styles.CARTO_DARK, initial_view_state=view_state, layers=[layer_points, layer_path], tooltip={"html": "<b>Day {Day}:</b> {Night Stay}"})
 
 # --- GLOBAL DATA LOADING ---
@@ -144,20 +151,15 @@ checklist_df = get_or_create_sheet_data(client, "Checklist")
 rates_data = get_exchange_rates(st.secrets.get("api_keys", {}).get("exchangerate_api_key"))
 rates = rates_data['rates']
 
-# --- SIDEBAR NAVIGATION ---
-with st.sidebar:
-    sidebar_lottie = load_lottieurl("https://assets1.lottiefiles.com/packages/lf20_m9zragkd.json")
-    if sidebar_lottie: st.lottie(sidebar_lottie, height=150, key="sidebar_lottie")
-    st.title("Sri Lanka Trip")
-    selected = option_menu(None, ["Dashboard", "Daily Itinerary", "Travel Handbook"],
-        icons=["bi-house-door-fill", "bi-calendar-week-fill", "bi-book-half"],
-        styles={"nav-link-selected": {"background-color": "#02ab21"}})
+# --- MAIN APP LAYOUT (SINGLE-PAGE WITH TABS) ---
 
-# --- DASHBOARD PAGE ---
-if selected == "Dashboard":
-    st.header(f"Dashboard | Our Adventure 🇱🇰")
-    st.markdown("---")
-    
+st.title("🇱🇰 Sri Lanka Trip Planner")
+st.markdown("Your all-in-one mobile companion for our adventure.")
+
+dash_tab, itinerary_tab, handbook_tab = st.tabs(["📍 Dashboard", "🗓️ Daily Itinerary", "📖 Travel Handbook"])
+
+# --- DASHBOARD TAB ---
+with dash_tab:
     col1, col2 = st.columns([1, 2])
     with col1:
         main_lottie = load_lottieurl("https://assets9.lottiefiles.com/packages/lf20_g8d3ch3c.json")
@@ -175,16 +177,19 @@ if selected == "Dashboard":
     with m2: styled_metric("Travelers", "8 People")
     st.divider()
 
-    main_col, widget_col = st.columns([2, 1])
-    with main_col:
-        st.subheader("Interactive Trip Route")
-        if not itinerary_df.empty and 'Night Stay' in itinerary_df.columns:
-            trip_map = create_itinerary_map(itinerary_df.copy())
-            if trip_map: st.pydeck_chart(trip_map, use_container_width=True)
-    with widget_col:
+    # THE MAP IS NOW ALWAYS VISIBLE ON THE DASHBOARD
+    st.subheader("Interactive Trip Route")
+    if not itinerary_df.empty and 'Night Stay' in itinerary_df.columns:
+        trip_map = create_itinerary_map(itinerary_df.copy())
+        if trip_map: st.pydeck_chart(trip_map, use_container_width=True)
+    
+    st.divider()
+
+    w1, w2 = st.columns(2)
+    with w1:
         with st.container(): # Weather Widget
             st.subheader("☀️ Weather Forecast")
-            if not itinerary_df.empty and 'Night Stay' in itinerary_df.columns:
+            if not itinerary_df.empty and 'Night Stay' in itinerary_df.columns and 'Date' in itinerary_df.columns:
                 all_cities = itinerary_df['Night Stay'].unique().tolist()
                 itinerary_df['Date_dt'] = pd.to_datetime(itinerary_df['Date']).dt.date
                 today_loc_row = itinerary_df[itinerary_df['Date_dt'] <= date.today()].tail(1)
@@ -194,15 +199,13 @@ if selected == "Dashboard":
                 weather_data = get_weather(selected_city, st.secrets.get("api_keys", {}).get("openweathermap_api_key"))
                 if weather_data and weather_data.get('cod') == 200:
                     st.metric(label=f"in {selected_city}", value=f"{weather_data['main']['temp']} °C", delta=f"Feels like {weather_data['main']['feels_like']} °C")
-                    st.write(f"_{weather_data['weather'][0]['description'].title()}_ with _{weather_data['main']['humidity']}% humidity._")
                 else: st.info(f"Weather for {selected_city} unavailable.")
-        
-        st.markdown("<br>", unsafe_allow_html=True)
+    
+    with w2:
         with st.container(): # Currency Converter Widget
             st.subheader("💱 Quick Converter")
-            cols = st.columns(2)
-            from_curr = cols[0].selectbox("From", FIXED_CURRENCIES, index=1)
-            to_curr = cols[1].selectbox("To", FIXED_CURRENCIES, index=0)
+            from_curr = st.selectbox("From", FIXED_CURRENCIES, index=1)
+            to_curr = st.selectbox("To", FIXED_CURRENCIES, index=0)
             amount = st.number_input("Amount", value=1000.0, format="%.2f", label_visibility="collapsed")
             if rates.get(from_curr) and rates.get(to_curr):
                 conv_rate = rates[to_curr] / rates[from_curr]
@@ -213,13 +216,15 @@ if selected == "Dashboard":
                 </div>
                 """, unsafe_allow_html=True)
 
-# --- ITINERARY PAGE ---
-if selected == "Daily Itinerary":
+# --- ITINERARY TAB ---
+with itinerary_tab:
     st.header("🗺️ Daily Itinerary")
+    st.write("Tap on a day to see details and get directions.")
     if not itinerary_df.empty:
-        itinerary_df['Date'] = pd.to_datetime(itinerary_df['Date']).dt.strftime('%A, %d %b %Y')
+        # Convert date column once before the loop
+        itinerary_df['Formatted_Date'] = pd.to_datetime(itinerary_df['Date']).dt.strftime('%A, %d %b %Y')
         for index, row in itinerary_df.iterrows():
-            with st.expander(f"**{row['Date']}**: {row['Location(s)']} → **{row['Night Stay']}**"):
+            with st.expander(f"**{row['Formatted_Date']}**: {row['Location(s)']} → **{row['Night Stay']}**"):
                 cols = st.columns([3, 1])
                 with cols[0]:
                     st.markdown(f"**🚗 Travel:** {row['Travel Details']}")
@@ -231,30 +236,31 @@ if selected == "Daily Itinerary":
                         except: origin = "Bandaranaike International Airport"
                     else: origin = itinerary_df.iloc[index-1]['Night Stay']
                     gmaps_url = f"https://www.google.com/maps/dir/{urllib.parse.quote_plus(origin+', Sri Lanka')}/{urllib.parse.quote_plus(destination+', Sri Lanka')}"
-                    st.link_button(f"Get Directions 🗺️", gmaps_url, use_container_width=True)
+                    st.link_button(f"Directions 🗺️", gmaps_url, use_container_width=True)
 
-# --- TRAVEL HANDBOOK PAGE ---
-if selected == "Travel Handbook":
+# --- TRAVEL HANDBOOK TAB ---
+with handbook_tab:
     st.header("📖 Travel Handbook")
-    tab1, tab2, tab3, tab4 = st.tabs(["🗣️ Essential Phrases", "💡 Travel Tips", "✅ Packing Checklist", "🚨 Emergency Info"])
     
-    with tab1:
+    handbook_tabs = st.tabs(["🗣️ Essential Phrases", "💡 Travel Tips", "✅ Packing Checklist", "🚨 Emergency Info"])
+    
+    with handbook_tabs[0]:
         st.subheader("Essential Sinhala Phrases"); st.dataframe(phrases_df, hide_index=True, use_container_width=True)
     
-    with tab2:
+    with handbook_tabs[1]:
         st.subheader("Top Travel Tips")
         if not tips_df.empty and 'Category' in tips_df.columns:
             for category in tips_df['Category'].unique():
                 with st.expander(f"**{category}**"):
                     for _, row in tips_df[tips_df['Category'] == category].iterrows(): st.markdown(f"- {row['Tip']}")
     
-    with tab3:
+    with handbook_tabs[2]:
         st.subheader("Our Packing Checklist")
         if not checklist_df.empty and 'Category' in checklist_df.columns:
             for category in checklist_df['Category'].unique():
                 st.write(f"**{category}**")
                 for _, row in checklist_df[checklist_df['Category'] == category].iterrows(): st.checkbox(row['Item'], key=f"pack_{row['Item']}")
     
-    with tab4:
+    with handbook_tabs[3]:
         st.subheader("Emergency Contacts & Info")
         st.error("""- **National Emergency / Police:** `119`\n- **Ambulance / Fire & Rescue:** `110`\n- **Tourist Police (Colombo):** `011-2421052`\n\n**Important:** Keep digital/physical copies of your passport, visa, and flight details. Share your itinerary with family.""")
