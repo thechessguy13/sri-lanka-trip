@@ -41,7 +41,6 @@ st.markdown("""
 
 
 # --- DATA DEFAULTS & STATIC ASSETS ---
-# REMOVED: "Users" and "Expenses" sheets are no longer needed.
 DEFAULT_SHEET_DATA = {
     "Tips": [
         ["Category", "Tip"], ["Money", "Always carry small change."], ["Health", "Drink only bottled water."],
@@ -130,7 +129,9 @@ def create_itinerary_map(df):
     view_state = pdk.ViewState(latitude=df['coords'].iloc[0][1], longitude=df['coords'].iloc[0][0], zoom=6.5, pitch=50)
     layer_points = pdk.Layer('ScatterplotLayer', data=df, get_position='coords', get_color='[200, 30, 0, 160]', get_radius=8000, pickable=True)
     layer_path = pdk.Layer("PathLayer", data=path_data, pickable=True, width_scale=20, width_min_pixels=2, get_path="path", get_color="color", get_width=5)
-    return pdk.Deck(map_style='mapbox://styles/mapbox/dark-v9', initial_view_state=view_state, layers=[layer_points, layer_path], tooltip={"html": "<b>Day {Day}:</b> {Night Stay}"}, api_keys={'mapbox': 'pk.eyJ1IjoidGhpbmtpbmctaW5zaWRlciIsImEiOiJjbDFncmQzbXAwZDJiM2lueGxscW53dGthIn0.a45p-f_wdtwnN3s_bY_1eA'})
+    
+    # Using CARTO basemap and no API key.
+    return pdk.Deck(map_style=pdk.map_styles.CARTO_DARK, initial_view_state=view_state, layers=[layer_points, layer_path], tooltip={"html": "<b>Day {Day}:</b> {Night Stay}"})
 
 # --- GLOBAL DATA LOADING ---
 client = connect_to_gsheets()
@@ -148,7 +149,6 @@ with st.sidebar:
     sidebar_lottie = load_lottieurl("https://assets1.lottiefiles.com/packages/lf20_m9zragkd.json")
     if sidebar_lottie: st.lottie(sidebar_lottie, height=150, key="sidebar_lottie")
     st.title("Sri Lanka Trip")
-    # REMOVED: Expense Tracker from menu
     selected = option_menu(None, ["Dashboard", "Daily Itinerary", "Travel Handbook"],
         icons=["bi-house-door-fill", "bi-calendar-week-fill", "bi-book-half"],
         styles={"nav-link-selected": {"background-color": "#02ab21"}})
@@ -170,7 +170,6 @@ if selected == "Dashboard":
         else: st.balloons(); st.markdown("## The adventure has begun!")
     
     st.divider()
-    # MODIFIED: Removed "Total Spent" and hardcoded "Travelers"
     m1, m2 = st.columns(2)
     with m1: styled_metric("Trip Duration", f"{len(itinerary_df)} Days")
     with m2: styled_metric("Travelers", "8 People")
@@ -237,7 +236,6 @@ if selected == "Daily Itinerary":
 # --- TRAVEL HANDBOOK PAGE ---
 if selected == "Travel Handbook":
     st.header("📖 Travel Handbook")
-    # REORDERED: Phrases tab is now first.
     tab1, tab2, tab3, tab4 = st.tabs(["🗣️ Essential Phrases", "💡 Travel Tips", "✅ Packing Checklist", "🚨 Emergency Info"])
     
     with tab1:
