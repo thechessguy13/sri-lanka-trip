@@ -6,7 +6,8 @@ import requests
 from datetime import datetime, date
 import urllib.parse
 import pydeck as pdk
-from streamlit_option_menu import option_menu # <-- ADD THIS IMPORT
+from streamlit_option_menu import option_menu
+import math
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
@@ -53,6 +54,7 @@ DEFAULT_SHEET_DATA = {
         ["Category", "Item"], ["Documents", "Passport & Visa"], ["Electronics", "Universal Power Adapter"]
     ]
 }
+AIRPORT_COORDINATES = [79.8841, 7.1804] # Bandaranaike International Airport (CMB)
 LOCATION_COORDINATES = {
     'Sigiriya': [80.7600, 7.9571], 'Trincomalee': [81.2359, 8.5874],
     'Pasikuda': [81.5644, 7.9197], 'Kandy': [80.6350, 7.2906],
@@ -89,7 +91,7 @@ def get_or_create_sheet_data(_client, sheet_name):
 
 @st.cache_data(ttl=3600)
 def get_exchange_rates(api_key):
-    fallback = {"result": "error", "rates": {"LKR": 300, "INR": 83.5, "USD": 1}}
+    fallback = {"result": "error", "rates": {"LKR": 300, "INR": 86.2, "USD": 1}}
     if not api_key or api_key == "YOUR_EXCHANGERATE_API_KEY_HERE": return fallback
     try:
         data = requests.get(f"https://v6.exchangerate-api.com/v6/{api_key}/latest/USD").json()
@@ -114,25 +116,52 @@ def styled_metric(label, value):
     """, unsafe_allow_html=True)
 
 def create_itinerary_map(df):
+    """
+    Creates an interactive PyDeck map with a gradient path showing the trip's progression.
+    """
     df['coords'] = df['Night Stay'].map(LOCATION_COORDINATES)
     df.dropna(subset=['coords'], inplace=True)
-    if df.empty: return None
+    if df.empty:
+        return None
 
-    path_data = [{'path': df['coords'].tolist(), 'name': 'Trip Route', 'color': [255, 69, 0]}]
-    view_state = pdk.ViewState(latitude=df['coords'].iloc[0][1], longitude=df['coords'].iloc[0][0], zoom=6.5, pitch=50)
+    # Define gradient colors (Yellow for start, Theme Blue for end)
+    START_COLOR, END_COLOR = [255, 255, 0], [41, 181, 232]
+    
+    # Create a full list of stops, starting with the airport
+    full_path_coords = [AIRPORT_COORDINATES] + df['coords'].tolist()
+    
+    path_segments_data = []
+    num_segments = len(full_path_coords) - 1
+
+    if num_segments < 1: return None 
+
+    for i in range(num_segments):
+        fraction = i / (num_segments - 1)
+        r = int(START_COLOR[0] * (1 - fraction) + END_COLOR[0] * fraction)
+        g = int(START_COLOR[1] * (1 - fraction) + END_COLOR[1] * fraction)
+        b = int(START_COLOR[2] * (1 - fraction) + END_COLOR[2] * fraction)
+        path_segments_data.append({
+            "path": [full_path_coords[i], full_path_coords[i+1]],
+            "color": [r, g, b]
+        })
+
+    view_state = pdk.ViewState(latitude=7.8731, longitude=80.7718, zoom=6.5, pitch=50)
 
     layer_points = pdk.Layer(
-        'ScatterplotLayer',
-        data=df[['Day', 'Night Stay', 'coords']],
-        get_position='coords',
-        get_color='[200, 30, 0, 160]',
-        get_radius=8000,
-        pickable=True
+        'ScatterplotLayer', data=df[['Day', 'Night Stay', 'coords']],
+        get_position='coords', get_color='[230, 230, 250, 200]', get_radius=8000, pickable=True
+    )
+    layer_path = pdk.Layer(
+        "PathLayer", data=path_segments_data, pickable=True, width_scale=20,
+        width_min_pixels=3, get_path="path", get_color="color", get_width=5
     )
 
-    layer_path = pdk.Layer("PathLayer", data=path_data, pickable=True, width_scale=20, width_min_pixels=2, get_path="path", get_color="color", get_width=5)
-
-    return pdk.Deck(map_style=pdk.map_styles.CARTO_DARK, initial_view_state=view_state, layers=[layer_points, layer_path], tooltip={"html": "<b>Day {Day}:</b> {Night Stay}"})
+    return pdk.Deck(
+        map_style=pdk.map_styles.CARTO_DARK,
+        initial_view_state=view_state,
+        layers=[layer_path, layer_points],
+        tooltip={"html": "<b>Day {Day}:</b> {Night Stay}"}
+    )
 
 # --- GLOBAL DATA LOADING ---
 client = connect_to_gsheets()
@@ -149,29 +178,20 @@ rates = rates_data['rates']
 st.markdown("<h1 style='text-align: center;'>Sri Lanka 2025</h1>", unsafe_allow_html=True)
 st.markdown("<h3 style='text-align: center;'>One Last Time!</h3>", unsafe_allow_html=True)
 
-# --- REPLACEMENT FOR st.tabs ---
 selected_tab = option_menu(
-    menu_title=None,
-    options=["Dashboard", "Daily Itinerary", "Travel Handbook"],
-    icons=["grid-1x2-fill", "calendar-date", "book-half"],
-    menu_icon="cast",
-    default_index=0,
-    orientation="horizontal",
+    menu_title=None, options=["Dashboard", "Daily Itinerary", "Travel Handbook"],
+    icons=["grid-1x2-fill", "calendar-date", "book-half"], menu_icon="cast", default_index=0, orientation="horizontal",
     styles={
         "container": {"padding": "0!important", "background-color": "transparent"},
         "icon": {"color": "white", "font-size": "18px"},
         "nav-link": {
-            "font-size": "16px",
-            "text-align": "center",
-            "margin": "0px 5px",
-            "--hover-color": "#3A3A3A",
-            "border-radius": "8px",
+            "font-size": "16px", "text-align": "center", "margin": "0px 5px",
+            "--hover-color": "#3A3A3A", "border-radius": "8px",
         },
         "nav-link-selected": {"background-color": "#29B5E8"},
     }
 )
 
-# --- NEW LOGIC TO DISPLAY TAB CONTENT ---
 if selected_tab == "Dashboard":
     st.markdown("<h3 style='text-align: center;'>Trip Countdown</h3>", unsafe_allow_html=True)
     trip_start_date = datetime(2025, 9, 20)
@@ -202,7 +222,6 @@ if selected_tab == "Dashboard":
                 if weather_data and weather_data.get('cod') == 200:
                     st.metric(label=f"in {selected_city}", value=f"{weather_data['main']['temp']} °C", delta=f"Feels like {weather_data['main']['feels_like']} °C")
                 else: st.info(f"Weather for {selected_city} unavailable.")
-
     with w2:
         with st.container():
             st.subheader("💱 Quick Converter")
