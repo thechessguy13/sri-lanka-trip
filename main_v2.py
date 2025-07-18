@@ -3,11 +3,10 @@ import pandas as pd
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 import requests
-# The Lottie library is no longer needed for the dashboard layout
-# from streamlit_lottie import st_lottie 
 from datetime import datetime, date
 import urllib.parse
 import pydeck as pdk
+from streamlit_option_menu import option_menu # <-- ADD THIS IMPORT
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
@@ -118,21 +117,21 @@ def create_itinerary_map(df):
     df['coords'] = df['Night Stay'].map(LOCATION_COORDINATES)
     df.dropna(subset=['coords'], inplace=True)
     if df.empty: return None
-    
+
     path_data = [{'path': df['coords'].tolist(), 'name': 'Trip Route', 'color': [255, 69, 0]}]
     view_state = pdk.ViewState(latitude=df['coords'].iloc[0][1], longitude=df['coords'].iloc[0][0], zoom=6.5, pitch=50)
-    
+
     layer_points = pdk.Layer(
         'ScatterplotLayer',
-        data=df[['Day', 'Night Stay', 'coords']], 
+        data=df[['Day', 'Night Stay', 'coords']],
         get_position='coords',
         get_color='[200, 30, 0, 160]',
         get_radius=8000,
         pickable=True
     )
-    
+
     layer_path = pdk.Layer("PathLayer", data=path_data, pickable=True, width_scale=20, width_min_pixels=2, get_path="path", get_color="color", get_width=5)
-    
+
     return pdk.Deck(map_style=pdk.map_styles.CARTO_DARK, initial_view_state=view_state, layers=[layer_points, layer_path], tooltip={"html": "<b>Day {Day}:</b> {Night Stay}"})
 
 # --- GLOBAL DATA LOADING ---
@@ -150,11 +149,30 @@ rates = rates_data['rates']
 st.markdown("<h1 style='text-align: center;'>Sri Lanka 2025</h1>", unsafe_allow_html=True)
 st.markdown("<h3 style='text-align: center;'>One Last Time!</h3>", unsafe_allow_html=True)
 
-dash_tab, itinerary_tab, handbook_tab = st.tabs(["📍 Dashboard", "🗓️ Daily Itinerary", "📖 Travel Handbook"])
+# --- REPLACEMENT FOR st.tabs ---
+selected_tab = option_menu(
+    menu_title=None,
+    options=["Dashboard", "Daily Itinerary", "Travel Handbook"],
+    icons=["grid-1x2-fill", "calendar-date", "book-half"],
+    menu_icon="cast",
+    default_index=0,
+    orientation="horizontal",
+    styles={
+        "container": {"padding": "0!important", "background-color": "transparent"},
+        "icon": {"color": "white", "font-size": "18px"},
+        "nav-link": {
+            "font-size": "16px",
+            "text-align": "center",
+            "margin": "0px 5px",
+            "--hover-color": "#3A3A3A",
+            "border-radius": "8px",
+        },
+        "nav-link-selected": {"background-color": "#29B5E8"},
+    }
+)
 
-# --- DASHBOARD TAB ---
-with dash_tab:
-    # --- BLOCK 1: CENTERED COUNTDOWN ---
+# --- NEW LOGIC TO DISPLAY TAB CONTENT ---
+if selected_tab == "Dashboard":
     st.markdown("<h3 style='text-align: center;'>Trip Countdown</h3>", unsafe_allow_html=True)
     trip_start_date = datetime(2025, 9, 20)
     delta = trip_start_date - datetime.now()
@@ -163,24 +181,15 @@ with dash_tab:
     else:
         st.balloons()
         st.markdown("<h2 style='text-align: center;'>The adventure has begun!</h2>", unsafe_allow_html=True)
-    
-    st.divider()
 
-    # --- BLOCK 2: BALANCED SIDE-BY-SIDE METRICS ---
-    # This is the corrected layout. By using two equal columns that span the full page width,
-    # the metrics will appear perfectly balanced and centered.
+    st.divider()
     m1, m2 = st.columns(2)
-    with m1: 
-        styled_metric("Trip Duration", f"{len(itinerary_df)} Days")
-    with m2: 
-        styled_metric("Travelers", "8 People")
-            
+    with m1: styled_metric("Trip Duration", f"{len(itinerary_df)} Days")
+    with m2: styled_metric("Travelers", "8 People")
     st.divider()
-
-    # --- BLOCK 3: WEATHER AND CONVERTER ---
     w1, w2 = st.columns(2)
     with w1:
-        with st.container(): # Weather Widget
+        with st.container():
             st.subheader("☀️ Weather Forecast")
             if not itinerary_df.empty and 'Night Stay' in itinerary_df.columns and 'Date' in itinerary_df.columns:
                 all_cities = itinerary_df['Night Stay'].unique().tolist()
@@ -193,9 +202,9 @@ with dash_tab:
                 if weather_data and weather_data.get('cod') == 200:
                     st.metric(label=f"in {selected_city}", value=f"{weather_data['main']['temp']} °C", delta=f"Feels like {weather_data['main']['feels_like']} °C")
                 else: st.info(f"Weather for {selected_city} unavailable.")
-    
+
     with w2:
-        with st.container(): # Currency Converter Widget
+        with st.container():
             st.subheader("💱 Quick Converter")
             from_curr = st.selectbox("From", FIXED_CURRENCIES, index=1)
             to_curr = st.selectbox("To", FIXED_CURRENCIES, index=0)
@@ -208,17 +217,14 @@ with dash_tab:
                     <p style="color:#fafafa; font-size:1.5rem; font-weight:bold; margin:0;">{result:,.2f} {to_curr}</p>
                 </div>
                 """, unsafe_allow_html=True)
-
     st.divider()
     st.subheader("Interactive Trip Route")
     if not itinerary_df.empty and 'Night Stay' in itinerary_df.columns:
         trip_map = create_itinerary_map(itinerary_df.copy())
         if trip_map: st.pydeck_chart(trip_map, use_container_width=True)
-    
     st.divider()
-    
-# --- ITINERARY TAB ---
-with itinerary_tab:
+
+if selected_tab == "Daily Itinerary":
     st.header("🗺️ Daily Itinerary")
     st.write("Tap on a day to see details and get directions.")
     if not itinerary_df.empty:
@@ -238,29 +244,23 @@ with itinerary_tab:
                     gmaps_url = f"https://www.google.com/maps/dir/{urllib.parse.quote_plus(origin+', Sri Lanka')}/{urllib.parse.quote_plus(destination+', Sri Lanka')}"
                     st.link_button(f"Directions 🗺️", gmaps_url, use_container_width=True)
 
-# --- TRAVEL HANDBOOK TAB ---
-with handbook_tab:
+if selected_tab == "Travel Handbook":
     st.header("📖 Travel Handbook")
-    
     handbook_tabs = st.tabs(["🗣️ Essential Phrases", "💡 Travel Tips", "✅ Packing Checklist", "🚨 Emergency Info"])
-    
     with handbook_tabs[0]:
         st.subheader("Essential Sinhala Phrases"); st.dataframe(phrases_df, hide_index=True, use_container_width=True)
-    
     with handbook_tabs[1]:
         st.subheader("Top Travel Tips")
         if not tips_df.empty and 'Category' in tips_df.columns:
             for category in tips_df['Category'].unique():
                 with st.expander(f"**{category}**"):
                     for _, row in tips_df[tips_df['Category'] == category].iterrows(): st.markdown(f"- {row['Tip']}")
-    
     with handbook_tabs[2]:
         st.subheader("Our Packing Checklist")
         if not checklist_df.empty and 'Category' in checklist_df.columns:
             for category in checklist_df['Category'].unique():
                 st.write(f"**{category}**")
                 for _, row in checklist_df[checklist_df['Category'] == category].iterrows(): st.checkbox(row['Item'], key=f"pack_{row['Item']}")
-    
     with handbook_tabs[3]:
         st.subheader("Emergency Contacts & Info")
         st.error("""- **National Emergency / Police:** `119`\n- **Ambulance / Fire & Rescue:** `110`\n- **Tourist Police (Colombo):** `011-2421052`\n\n**Important:** Keep digital/physical copies of your passport, visa, and flight details. Share your itinerary with family.""")
